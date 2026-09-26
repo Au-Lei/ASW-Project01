@@ -1,0 +1,24 @@
+{
+  "bl_number": [
+    "D/R No.",
+    "提单号"
+  ],
+  "vessel": [
+    "船名/航次"
+  ],
+  "sailing_date": [
+    "船期"
+  ],
+  "containers": [
+    "箱量"
+  ],
+  "station": [
+    "场站"
+  ],
+  "destination": [
+    "目地港"
+  ],
+  "origin": [
+    "装货港"
+  ]
+}

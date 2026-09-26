@@ -1,0 +1,1 @@
+"""Document and workbook adapters."""
