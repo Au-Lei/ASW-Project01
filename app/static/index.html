@@ -32,6 +32,7 @@
     button{background:linear-gradient(135deg,#1db4d2,#2265ae);box-shadow:0 6px 20px #10567d4a;color:white}button:hover{background:linear-gradient(135deg,#32d7e5,#397ed1)}button:disabled{background:#375164;color:#a8bbc5;box-shadow:none}.secondary{box-shadow:none}
     .settings{background:#0b2030;border-color:#367183}.settings h3{color:#dffcff}.settings label{color:#9dbdcc}.settings input,.table input{background:#081a29;color:#effbff;border-color:#3c6275}.settings input:focus,.table input:focus{outline:2px solid #38bcd1;outline-offset:1px}.settings input::placeholder,.table input::placeholder{color:#688b9c}.settings .hint,.muted,.message{color:#9fb8c8}.error{color:#ff9d9a!important}
     .table{border-color:#345d70}.table>div{border-bottom-color:#29485a}.table .th{background:#143347;color:#a5d8e5}.table small{color:#9cb9c7}.flag{color:#ffcf80}.alias-choice{color:#9cdeea}footer{color:#69899e}
+    .table select{width:100%;font:inherit;padding:8px 10px;background:#081a29;color:#effbff;border:1px solid #3c6275;border-radius:7px}.table select:focus{outline:2px solid #38bcd1;outline-offset:1px}
     .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:0 0 19px}.stat{background:#0c2133c9;border:1px solid #2d6077;border-radius:13px;padding:16px 18px;box-shadow:inset 0 1px #61d8f014}.stat-label{display:block;font-size:12px;color:#91aebe;letter-spacing:.08em}.stat-value{display:block;margin-top:8px;font:600 27px Consolas,monospace;color:#68e5ee}.stat small{color:#718fa2}
     .progress-head{display:flex;justify-content:space-between;align-items:center;gap:16px}.progress-time{font:600 20px Consolas,monospace;color:#70e7eb}.progress-track{height:6px;border-radius:6px;background:#203c50;overflow:hidden;margin:12px 0 20px}.progress-fill{height:100%;width:0;background:linear-gradient(90deg,#25c7d9,#85f0d8);box-shadow:0 0 14px #61e2dc;transition:width .35s}.progress-steps{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(5,1fr);gap:10px}.progress-steps li{border:1px solid #2d4d60;background:#0a1a29;border-radius:10px;padding:11px;font-size:12px;color:#839bad;min-height:58px}.progress-steps li:before{content:attr(data-number);display:inline-flex;align-items:center;justify-content:center;width:23px;height:23px;margin-right:6px;border-radius:50%;background:#1c3b50;color:#b4d0de;font:600 12px Consolas,monospace}.progress-steps li.done{border-color:#236d77;color:#8be4db}.progress-steps li.done:before{content:"✓";background:#1c645e;color:#d2fff5}.progress-steps li.active{border-color:#48d8e6;background:#123647;color:#ecffff;box-shadow:0 0 17px #27b5cc30}.progress-steps li.active:before{background:#2c8fa3;color:white}.progress-steps li.failed{border-color:#d06872;color:#ffb4b5}.progress-detail{margin:15px 0 0;color:#9ec5d0;font-size:13px;min-height:20px}
     .progress-log{margin-top:13px;padding:10px 12px;border:1px solid #254a5c;border-radius:9px;background:#081827;max-height:138px;overflow:auto;font:12px/1.7 Consolas,"Microsoft YaHei",monospace;color:#8eb8c5}.progress-log div:last-child{color:#b4eef0}.progress-log time{color:#4bd1dc;margin-right:10px}
@@ -78,7 +79,7 @@
   </section>
   <section id="review" class="card" hidden>
     <h2><span class="step">3</span>核对并修改提取结果</h2>
-    <p class="muted">请以原始单据为准确认。文件中缺少的字段，可参考订舱聊天或邮件手动填写。AI 模式下，勾选“记住标签”并下载后才会保存标签对应关系，不保存本票业务值。承运公司、客服、合约、揽货人按要求留空。</p>
+    <p class="muted">请以原始单据为准确认；承运公司、合约可手填，揽货人和客服可选择英文名。AI 模式下，勾选“记住标签”并下载后才会保存标签对应关系，不保存本票业务值。</p>
     <div class="table" id="fields"></div>
     <div class="actions"><button id="export">下载业务联系单 Excel</button><span id="export-message" class="message"></span></div>
   </section>
@@ -86,6 +87,8 @@
 </main>
 <script>
 const names={bl_number:'提单号/订舱号',vessel:'船名',voyage:'航次',sailing_date:'船期',containers:'箱量及类型',station:'场站',destination:'目的港',origin:'起运港'};
+const manualFields={carrier:'承运公司',sales:'揽货人',customer_service:'客服',contract:'合约'};
+const staffNames={sales:['ROBIN','DAVID','SAM','RUIBY','BELL','LUCKY','CASSIE','SVEN','RICHI','ECHO','JASPER','GAVIN','JASON','MIKE','VICTOR'],customer_service:['SISSIE','CELIA','VIKY','SIENNA','MIA','HELEN','DROVAN','JOCELYN','IRIS']};
 const $=id=>document.getElementById(id);
 async function fileData(file){return new Promise((resolve,reject)=>{let r=new FileReader();r.onload=()=>resolve(String(r.result).split(',')[1]);r.onerror=reject;r.readAsDataURL(file)})}
 function message(id,text,error=false){$(id).textContent=text;$(id).classList.toggle('error',error)}
@@ -146,6 +149,18 @@ function render(data){
     let source=document.createElement('div');source.className='source';let note=document.createElement('small');note.textContent=[entry.source_label,entry.source,entry.evidence].filter(Boolean).join(' · ')||'原件未找到，保持空白';source.append(note);
     if(entry.conflict||entry.review_reason){let flag=document.createElement('div');flag.className='flag';flag.textContent=entry.review_reason||'两份单据存在不同值，请核对';source.append(flag)}
     if(data.mode==='ai'&&entry.source_label&&entry.value){let choice=document.createElement('label');choice.className='alias-choice';let checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.dataset.aliasField=key;checkbox.checked=true;choice.append(checkbox,document.createTextNode('记住标签：'+entry.source_label));source.append(choice)}
+    table.append(name,value,source)
+  }
+  for(let [key,label] of Object.entries(manualFields)){
+    let name=document.createElement('div');name.className='name';name.textContent=label;
+    let value=document.createElement('div');let control;
+    if(staffNames[key]){
+      control=document.createElement('select');
+      let blank=document.createElement('option');blank.value='';blank.textContent='请选择'+label;control.append(blank);
+      for(const person of staffNames[key]){let option=document.createElement('option');option.value=person;option.textContent=person;control.append(option)}
+    }else{control=document.createElement('input');control.placeholder='请根据邮件或聊天填写'}
+    control.dataset.key=key;value.append(control);
+    let source=document.createElement('div');source.className='source';let note=document.createElement('small');note.textContent=staffNames[key]?'从内部通讯录英文名中选择；本次不自动识别':'人工填写，不自动识别';source.append(note);
     table.append(name,value,source)
   }
   $('review').hidden=false;$('review').scrollIntoView({behavior:'smooth'});
@@ -216,7 +231,7 @@ $('extract').onclick=async()=>{
   finally{extracting=false;$('extract').disabled=!($('entrust').files.length||$('notice').files.length)}
 };
 $('export').onclick=async()=>{
-  let values={};document.querySelectorAll('#fields input[data-key]').forEach(input=>values[input.dataset.key]=input.value);
+  let values={};document.querySelectorAll('#fields [data-key]').forEach(input=>values[input.dataset.key]=input.value);
   let confirmed_aliases=[];
   if(currentExtraction?.mode==='ai')document.querySelectorAll('#fields input[data-alias-field]:checked').forEach(input=>{let field=input.dataset.aliasField;confirmed_aliases.push({field,source_label:currentExtraction.fields[field].source_label})});
   $('export').disabled=true;message('export-message','正在生成 Excel……');
