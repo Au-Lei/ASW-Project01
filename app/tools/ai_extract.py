@@ -4,6 +4,7 @@ import base64
 import json
 from pathlib import Path
 
+from app.nodes.normalize import normalize_destination, normalize_sailing_date
 from app.state import FIELDS, PROJECT_ROOT
 from app.tools.alias_memory import load_aliases
 from app.tools.layout_pdf import word_to_pdf
@@ -113,6 +114,10 @@ def ai_extract(documents: list[dict], on_progress=None) -> tuple[dict, list[str]
     for field in FIELDS:
         raw = parsed[field]
         value = str(raw.get("value", "")).strip()[:160]
+        if field == "sailing_date":
+            value = normalize_sailing_date(value)
+        elif field == "destination":
+            value = normalize_destination(value)
         source = str(raw.get("source", "")).strip()
         source = rendered_names.get(source, source)
         reason = str(raw.get("review_reason", "")).strip()[:200]

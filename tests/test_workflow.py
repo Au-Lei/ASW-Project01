@@ -18,7 +18,7 @@ import openpyxl
 from app.graph import comparable_value, extract
 from app import jobs
 from app.nodes.rule_extract import rule_extract
-from app.nodes.normalize import normalize_origin
+from app.nodes.normalize import normalize_destination, normalize_origin, normalize_sailing_date
 from app.tools.excel_export import make_workbook
 from app.tools.document_reader import decode_office_output, read_document
 from app.state import PROJECT_ROOT
@@ -79,6 +79,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertEqual(fields["bl_number"]["value"], "177CWWZUQ0455")
         self.assertEqual(fields["bl_number"]["source_label"], "D/R No.")
+
+    def test_ai_sailing_date_and_destination_use_business_display_format(self):
+        document = {"name": "入货通知.pdf", "role": "入货通知", "data": b"%PDF-demo", "text": "PROFORMA ETD:08-Sep-2026\n卸货港: HAMAD;QATAR"}
+        values = {field: {name: "" for name in ("value", "evidence", "source", "source_label", "review_reason")} for field in ("bl_number", "vessel", "voyage", "sailing_date", "containers", "station", "destination", "origin")}
+        values["sailing_date"].update(value="08-Sep-2026", evidence="PROFORMA ETD:08-Sep-2026", source="入货通知.pdf", source_label="PROFORMA ETD")
+        values["destination"].update(value="HAMAD;QATAR", evidence="卸货港: HAMAD;QATAR", source="入货通知.pdf", source_label="卸货港")
+        body = {"choices": [{"message": {"content": json.dumps(values, ensure_ascii=False)}}]}
+        settings = {"base_url": "https://api.deepseek.com", "api_key": "test-key", "model": "deepseek-chat"}
+        with patch("app.tools.ai_extract.get_settings", return_value=settings), patch("app.tools.ai_extract.call_service", return_value=body):
+            fields, _ = ai_extract([document])
+        self.assertEqual(fields["sailing_date"]["value"], "9.8")
+        self.assertEqual(fields["destination"]["value"], "HAMAD")
+        self.assertIn("08-Sep-2026", fields["sailing_date"]["evidence"])
+        self.assertIn("HAMAD;QATAR", fields["destination"]["evidence"])
+        self.assertEqual(normalize_sailing_date("2026-09-08"), "9.8")
+        self.assertEqual(normalize_destination("PORT KLANG WEST, MALAYSIA"), "PORT KLANG WEST")
+        self.assertEqual(normalize_destination("BELAWAN, SUMATRA"), "BELAWAN, SUMATRA")
 
     def test_page_settings_are_runtime_only_and_never_return_key(self):
         try:
