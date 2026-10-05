@@ -5,6 +5,7 @@ from threading import Lock, Thread
 from uuid import uuid4
 
 from app.graph import extract
+from app.diagnostics import record_error
 from app.state import FIELDS
 
 
@@ -51,10 +52,12 @@ def _run_job(job_id: str, documents: list[dict], mode: str) -> None:
     try:
         result = extract(documents, mode, on_progress=progress)
     except Exception as error:
+        record_error("extraction_failed", error, job_id=job_id)
         with _lock:
             job = _jobs[job_id]
             job["status"] = "failed"
             job["error"] = str(error)
+            job["error_code"] = f"{job['stage']}_failed"
             job["finished_at"] = time.monotonic()
             _stats["failed"] += 1
             _stats[mode] += 1
@@ -79,7 +82,8 @@ def get_job(job_id: str) -> dict:
             raise ValueError("提取任务不存在或已过期，请重新提交")
         elapsed_ms = round(((job["finished_at"] or time.monotonic()) - job["started_at"]) * 1000)
         return {"status": job["status"], "stage": job["stage"], "detail": job["detail"],
-                "elapsed_ms": elapsed_ms, "events": list(job["events"]), "result": job["result"], "error": job["error"]}
+                "elapsed_ms": elapsed_ms, "events": list(job["events"]), "result": job["result"], "error": job["error"],
+                "error_code": job.get("error_code")}
 
 
 def get_stats() -> dict:

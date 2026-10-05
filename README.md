@@ -49,6 +49,10 @@ app/state.py            字段和模板单元格映射
 app/nodes/              规则提取节点
 app/tools/              文档读取、AI 提取、Excel 导出
 app/static/             网页界面
+app/business.py         公司字段、人员与港口配置
+app/models.py           单据与字段结果数据模型
+app/services/           请求验证、流程编排、合并、审核导出
+app/rules/              有序的字段匹配规则
 prompts/                AI 提取提示词
 data/                   人工确认的字段别名
 assets/                 业务联系单原版模板
@@ -56,8 +60,12 @@ tests/                  回归测试
 docs/architecture.md    结构与扩展说明
 ```
 
+重构后的模块职责见 [架构说明](docs/architecture.md)。人员名单集中在 `app/business.py`，日期、目的港与起运港统一规范化；诊断日志位于 `logs/app.log`，不写入 API Key 或单据正文。`build/`、`dist/` 和日志均不提交 Git。
+
 运行测试：
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
+
+如开发电脑安装了 Node.js，还可运行 `node tests/test_frontend.cjs`，检查前端网络重试策略。Node.js 只用于该项开发测试，不是程序运行依赖。

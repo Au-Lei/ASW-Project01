@@ -1,0 +1,9 @@
+"""Ordered field patterns; first explicit match wins. Keep ordering tested."""
+
+FIELD_PATTERNS = {
+    "sailing_date": [r"\bPROFORMA[ \t]+ETD[ \t]*:[ \t]*(\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"(?mi)^\s*船名/航次:[^\n]{1,100}?\bETD:[ \t]*((?:20\d{2}[-/.])\d{1,2}[-/.]\d{1,2}|\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"(?m)^[ \t]*(?:VSL/VOY|VESSEL/VOYAGE):[^\n]{1,100}?\bETD:[ \t]*((?:20\d{2}[-/.])\d{1,2}[-/.]\d{1,2})", r"(?m)^[ \t]*Port of Loading:[^\n]{1,100}?\bETD:[ \t]*(\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"预计开航[ \t]*[:：][ \t]*((?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2})", r"(?mi)(?:^|\|)[ \t]*(?:ETD(?: DATE)?|预计开航时间|预计开航日|预计开航|预计船期|预计开船期|预计开船日|开船时间|船期)[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?((?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2}|\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"(?m)^.+\s+(?:\d+[A-Z])\s+(20\d{2}-\d{1,2}-\d{1,2})\s+20\d{2}-"],
+    "containers": [r"(?m)^\s*(?:DESPATCH QUANTITY FCL QTY|箱型/箱量|箱型箱量|箱量及类型|箱量|箱型|数量)\s*[:：]?\s*(?:\|\s*)?(\d+\s*[xX*×/]?\s*40\s*'?\s*(?:HQ|HC|RH|NOR|REEF|HI-CUBE|GP)|\d+\s*[xX*×/]?\s*20\s*'?\s*(?:GP|DV|DRY|DC)|(?:20|40)\s*'?(?:HQ|HC|RH|NOR|REEF|GP|DV|DRY)\s*[xX*×]\s*\d+|LCL)", r"\b(\d+\s*[xX*×/]\s*(?:20|40)\s*'?(?:HQ|HC|RH|NOR|REEF|GP|DV|DRY))\b", r"(?m)^\s*(\d+\s+20\s+DRY)\s", r"(?m)^\s*(\d+\s*/\s*40'\s*HI-CUBE)\b"],
+    "station": [r"(?m)^\s*(?:入货场站|场站|提箱场地|提箱场站|提箱堆场|提空地点|提柜地点|DEPOT)\s*[:：]\s*(?:\|\s*)?([^\r\n|]{2,60})"],
+    "destination": [r"(?m)^[ \t]*(?:PORT OF DISCHARGE|DISCHARGING PORT|POD|卸货港|目的港|目[ \t]*的[ \t]*港)(?:/卸货地|[ \t]*\([^)]*\))?[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?([A-Za-z][A-Za-z ,.-]{2,60})", r"(?:目\s*的\s*港|卸\s*货\s*港|PORT OF DISCHARGE)(?:\s*\([^)]*\))?\s*[:：]\s*(?:\|\s*)?([A-Za-z][A-Za-z ,.-]{2,60})", r"交货地[ \t]*[:：][ \t]*([A-Za-z][A-Za-z ,.-]{2,60})"],
+    "origin": [r"(?m)^[ \t]*(?:PORT OF LOADING|LOADING PORT|POL|装货港|装运港|起运港)(?:/起运地|[ \t]*\([^)]*\))?[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?([A-Za-z][A-Za-z ,.-]{2,60})", r"收货地[ \t]*[:：][ \t]*([A-Za-z][A-Za-z ,.-]{2,60})"],
+}

@@ -3,6 +3,7 @@
 import re
 
 from app.state import FIELDS
+from app.rules.patterns import FIELD_PATTERNS
 
 
 def normalize_source_text(text: str) -> str:
@@ -13,7 +14,7 @@ def normalize_source_text(text: str) -> str:
 
 def split_inline_fields(text: str) -> str:
     """PDF tables often place two labeled cells on the same extracted line."""
-    labels = r"(?:提\s*单\s*号|订舱号|船名/航次|船名航次|船期|箱量及类型|箱型/箱量|箱型箱量|箱量|场站|目的港|装货港|起运港|PORT OF DISCHARGE|PORT OF LOADING)"
+    labels = r"(?:提\s*单\s*号|订舱号|船名/航次|船名航次|船期|箱量及类型|箱型/箱量|箱型箱量|箱型箱数|箱量|提箱地点|提箱地|提柜地点|场站|目的港|装货港|起运港|ETD|PORT OF DISCHARGE|PORT OF LOADING)"
     return re.sub(rf"[ \t]+(?={labels}[ \t]*[:：])", "\n", text, flags=re.I)
 
 
@@ -53,7 +54,119 @@ def normalize_station(value: str) -> str:
     value = re.sub(r"[（(](?:暂定|待定|以实际为准)[^）)]*[）)]", "", value).strip()
     if value in {"青岛港联荣場站", "青岛港联荣场站"}:
         return "青岛港"
+    if value.startswith("山港陆海联地"):
+        return "山港陆海联地"
     return re.sub(r"(?:物流)?有限公司$", "", value)
+
+
+def _labeled_value(text: str, label: str, value: str) -> tuple[str, str]:
+    """Read a label and value even when an Office table puts them on separate lines."""
+    match = re.search(rf"(?mi)^[ \t]*(?:{label})[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?(?:\n[ \t]*){{0,3}}({value})", text)
+    return (match.group(1).strip(), match.group(0).strip()[:180]) if match else ("", "")
+
+
+def _complete_sparse_fields(text: str, result: dict) -> None:
+    """Handle common carrier layouts left intact by text extraction."""
+    def put(key: str, value: str, evidence: str, **extra: str) -> None:
+        if value and not result[key]["value"]:
+            result[key] = {"value": value, "evidence": evidence, **extra}
+
+    bill, evidence = _labeled_value(text, r"Bill of Lading\s*#|D/R\s*No\.?(?:\s*\([^)]*\))?", r"[A-Z0-9-]{7,}")
+    if bill and not re.search(r"\d", bill):
+        bill, evidence = "", ""
+    inline_bill = re.search(r"(?i)Bill of Lading\s*#\s*:\s*([A-Z0-9-]{7,})", text)
+    if inline_bill:
+        bill, evidence = inline_bill.group(1), inline_bill.group(0)[:180]
+    if not bill:
+        match = re.search(r"(?mi)^D/R No\.[^\n]*\n(?:[^\n]*\n){0,5}?((?=[A-Z0-9]*\d)[A-Z0-9]{12,})[ \t]*$", text)
+        if match:
+            bill, evidence = match.group(1), match.group(0)[:180]
+    if bill and result["bl_number"].get("identifier_kind") != "bill":
+        result["bl_number"] = {"value": bill, "evidence": evidence, "identifier_kind": "bill"}
+    if re.fullmatch(r"\d{10}", result["bl_number"]["value"]) and "OOCL" in text.upper():
+        result["bl_number"]["value"] = "OOLU" + result["bl_number"]["value"]
+        result["bl_number"]["evidence"] += "（OOCL 提单前缀）"
+
+    if not result["sailing_date"]["value"]:
+        date, evidence = _labeled_value(text, r"(?:预计开航时间|预计开船日|预计开船期|预计船期|ETD(?: DATE)?)", r"(?:20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]20\d{2}|\d{1,2}[-/.]\d{1,2}|\d{1,2}[- ](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[- ]20\d{2})")
+        if not date:
+            inline_date = re.search(r"(?i)\bETD\s*:\s*(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2})", text)
+            if inline_date:
+                date, evidence = inline_date.group(1), inline_date.group(0)[:180]
+        if not date:
+            inline_date = re.search(r"预计开航时间\s*[:：]\s*(\d{1,2}[- ](?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[- ]20\d{2})", text, re.I)
+            if inline_date:
+                date, evidence = inline_date.group(1), inline_date.group(0)[:180]
+        put("sailing_date", format_date(date), evidence)
+    # ONE transshipment notices put the first-leg ETA beside the pre-carrier.
+    # Keep the source visible because this differs from a normal ETD choice.
+    if not result["sailing_date"]["value"] and re.search(r"(?mi)^Pre Carrier\s*:", text):
+        match = re.search(r"(?mi)^Pre Carrier\s*:[^\n]*?Latest ETA/ETD\s*:\s*(\d{1,2}[A-Z]{3}\d{2})/", text)
+        if match:
+            month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(match.group(1)[2:5].upper()) + 1
+            put("sailing_date", f"{month}.{int(match.group(1)[:2])}", match.group(0)[:180] + "（首程船 ETA；请核对）")
+
+    if not result["containers"]["value"]:
+        box_patterns = (
+            r"(?mi)(?:总箱型/尺寸|BOOKING QTY SIZE/TYPE)\s*:\s*(\d+)\s*[X*×]\s*(20|40)'?\s*(Hi-Cube|HC|HQ|GP|REEF|NOR)",
+            r"(?mi)^\s*(\d+)\s+(20|40)\s+(REEF|NOR|HC|HQ|GP)\b",
+        )
+        for pattern in box_patterns:
+            match = re.search(pattern, text)
+            if match:
+                qty, size, kind = match.groups()
+                kind = {"HI-CUBE": "HC", "REEF": "NOR" if re.search(r"(?m)^NOR\s*$|冻代干|冷代干", text, re.I) else "REEF"}.get(kind.upper(), kind.upper())
+                put("containers", f"{qty}X{size}{kind}", match.group(0)[:180])
+                break
+    if not result["containers"]["value"]:
+        match = re.search(r"(?mi)^箱型箱数\s*[:：]\s*(20|40)(GP|DV|HC|HQ|NOR|REEF)\s*[xX*×]\s*(\d+)", text)
+        if match:
+            kind = "GP" if match.group(2).upper() == "DV" else match.group(2).upper()
+            put("containers", f"{match.group(3)}X{match.group(1)}{kind}", match.group(0)[:180])
+    if not result["containers"]["value"]:
+        match = re.search(r"(?mi)^EQ Type/Q'ty\s*:\s*(20|40)'?\s*DRY\s*(HC|HQ|GP)?\.?\s*-\s*(\d+)", text)
+        if match:
+            put("containers", f"{match.group(3)}X{match.group(1)}{match.group(2) or 'GP'}", match.group(0)[:180])
+    if not result["containers"]["value"]:
+        match = re.search(r"(?mi)^\s*(20|40)(HC|HQ|GP|NOR)\s*[xX*×]\s*\n?\s*(\d+)\s*$", text)
+        if match:
+            put("containers", f"{match.group(3)}X{match.group(1)}{match.group(2)}", match.group(0)[:180])
+    if not result["containers"]["value"] and "拼箱货物" in text:
+        put("containers", "LCL", "拼箱货物（按拼箱业务类型；请核对）")
+
+    if not result["station"]["value"]:
+        station, evidence = _labeled_value(text, r"(?:提箱地点|提箱地|提柜地点|入货地址|退箱/提箱处|空箱提取处)", r"[^\n|]{2,100}")
+        put("station", normalize_station(station.split(" 天津港")[0].split("(黄岛")[0]), evidence)
+
+    if not result["vessel"]["value"]:
+        vessel, evidence = _labeled_value(text, r"(?:Pre Carrier|Ocean Vessel\([^)]*\)\s*Voy\. No\. \([^)]*\)|船名/航次|船名航次)", r"[A-Z][A-Z0-9 .-]+(?:/|-V\.|[ \t])[ \t]*[A-Z0-9/-]{3,}")
+        if not vessel:
+            match = re.search(r"(?mi)^Ocean Vessel[^\n]*\n\s*([A-Z][A-Z ]+\s+-V\.\d+[A-Z])", text)
+            if match:
+                vessel, evidence = match.group(1), match.group(0)[:180]
+        vessel = re.split(r"\s+Latest\s+ETA|\s+ETD\s*:", vessel, 1, flags=re.I)[0]
+        match = re.match(r"(.+?)[ \t]*(?:/|[ \t]+-V\.|[ \t]+)(\d[A-Z0-9/-]{2,})[ \t]*$", vessel)
+        if match:
+            put("vessel", match.group(1).strip(), evidence)
+            put("voyage", match.group(2).strip(), evidence)
+    if result["vessel"]["value"] and not result["voyage"]["value"]:
+        match = re.search(r"(?mi)^船名/航次:[^\n]*\n(?:[^\n]*\n){0,2}[ \t]*(\d{2,5}[A-Z])[ \t]*$", text)
+        if match:
+            put("voyage", match.group(1), match.group(0)[:180])
+    if result["station"]["value"].startswith("点:") or result["station"]["value"].startswith("点："):
+        result["station"]["value"] = normalize_station(result["station"]["value"][2:].split(" 天津港")[0].strip())
+
+    if not result["origin"]["value"]:
+        origin, evidence = _labeled_value(text, r"(?:FROM|Place of Receipt|接货地|收货地|Port of Loading|装港)", r"[A-Z][A-Z ,.'-]{2,70}")
+        put("origin", origin, evidence)
+    if not result["destination"]["value"]:
+        destination, evidence = _labeled_value(text, r"(?:目的港|Port of Discharge(?:\s*\([^)]*\))?|卸港)", r"[A-Z][A-Z ,.'-]{2,70}")
+        if not re.match(r"(?:Place of |Port of |Final Destination|Ocean Vessel)", destination, re.I):
+            put("destination", destination, evidence)
+    if re.search(r"(?mi)^PLACE OF RECEIPT\s*:\s*Zhengzhou", text) and re.search(r"(?mi)^PORT OF LOADING\s*:\s*Qingdao", text):
+        result["origin"] = {"value": "ZZ-QD", "evidence": "PLACE OF RECEIPT: Zhengzhou；PORT OF LOADING: Qingdao"}
+    if re.search(r"(?mi)^Pre Carrier\s*:", text) and re.search(r"(?mi)^Place of Receipt\s*:\s*NANSHA", text):
+        result["origin"] = {"value": "NS", "evidence": "Place of Receipt: NANSHA（首程收货地；请核对）"}
 
 
 def rule_extract(text: str) -> dict:
@@ -63,14 +176,7 @@ def rule_extract(text: str) -> dict:
     bill, bill_evidence = match_first(text, [r"(?m)^[ \t]*(?:提\s*单\s*号|B/L[ \t]*(?:NO\.?|NUMBER)|BILL OF LADING[ \t]*(?:NO\.?|NUMBER)|D/R[ \t]*NO\.?)\s*[:：.]?\s*(?:\|\s*)?([A-Z0-9-]{7,})"])
     booking, booking_evidence = match_first(text, [r"(?m)^[ \t]*(?:BOOKING NUMBER(?:\([^)]*\))?|Booking No\.?|订舱号码|订舱号|SO/NO)\s*[:：.]?\s*(?:\|\s*)?([A-Z0-9-]{7,})", r"\bElectronic Ref\.[ \t]*:[ \t]*([A-Z0-9-]{7,})"])
     result["bl_number"] = {"value": bill or booking, "evidence": bill_evidence or booking_evidence, "identifier_kind": "bill" if bill else "booking" if booking else ""}
-    patterns = {
-        "sailing_date": [r"\bPROFORMA[ \t]+ETD[ \t]*:[ \t]*(\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"(?m)^[ \t]*(?:VSL/VOY|VESSEL/VOYAGE):[^\n]{1,100}?\bETD:[ \t]*((?:20\d{2}[-/.])\d{1,2}[-/.]\d{1,2})", r"(?m)^[ \t]*Port of Loading:[^\n]{1,100}?\bETD:[ \t]*(\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"预计开航[ \t]*[:：][ \t]*((?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2})", r"(?m)(?:^|\|)[ \t]*(?:ETD(?: DATE)?|预计开航时间|预计开航日|预计开航|预计船期|预计开船期|预计开船日|开船时间|船期)[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?((?:20\d{2}[-/.年])?\d{1,2}[-/.月]\d{1,2}|\d{1,2}[ -][A-Z]{3}[ -]20\d{2})", r"(?m)^.+\s+(?:\d+[A-Z])\s+(20\d{2}-\d{1,2}-\d{1,2})\s+20\d{2}-"],
-        "containers": [r"(?m)^\s*(?:DESPATCH QUANTITY FCL QTY|箱型/箱量|箱型箱量|箱量及类型|箱量|箱型|数量)\s*[:：]?\s*(?:\|\s*)?(\d+\s*[xX*×/]?\s*40\s*'?\s*(?:HQ|HC|RH|NOR|REEF|HI-CUBE|GP)|\d+\s*[xX*×/]?\s*20\s*'?\s*(?:GP|DV|DRY|DC)|(?:20|40)\s*'?(?:HQ|HC|RH|NOR|REEF|GP|DV|DRY)\s*[xX*×]\s*\d+|LCL)", r"\b(\d+\s*[xX*×/]\s*(?:20|40)\s*'?(?:HQ|HC|RH|NOR|REEF|GP|DV|DRY))\b", r"(?m)^\s*(\d+\s+20\s+DRY)\s", r"(?m)^\s*(\d+\s*/\s*40'\s*HI-CUBE)\b"],
-        "station": [r"(?m)^\s*(?:入货场站|场站|提箱场地|提箱场站|提箱堆场|提空地点|提柜地点|DEPOT)\s*[:：]\s*(?:\|\s*)?([^\r\n|]{2,60})"],
-        "destination": [r"(?m)^[ \t]*(?:PORT OF DISCHARGE|DISCHARGING PORT|POD|卸货港|目的港|目[ \t]*的[ \t]*港)(?:/卸货地|[ \t]*\([^)]*\))?[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?([A-Za-z][A-Za-z ,.-]{2,60})", r"(?:目\s*的\s*港|卸\s*货\s*港|PORT OF DISCHARGE)(?:\s*\([^)]*\))?\s*[:：]\s*(?:\|\s*)?([A-Za-z][A-Za-z ,.-]{2,60})", r"交货地[ \t]*[:：][ \t]*([A-Za-z][A-Za-z ,.-]{2,60})"],
-        "origin": [r"(?m)^[ \t]*(?:PORT OF LOADING|LOADING PORT|POL|装货港|装运港|起运港)(?:/起运地|[ \t]*\([^)]*\))?[ \t]*[:：]?[ \t]*(?:\|[ \t]*)?([A-Za-z][A-Za-z ,.-]{2,60})", r"收货地[ \t]*[:：][ \t]*([A-Za-z][A-Za-z ,.-]{2,60})"],
-    }
-    for key, pats in patterns.items():
+    for key, pats in FIELD_PATTERNS.items():
         value, evidence = match_first(text, pats)
         if key == "sailing_date" and value:
             value = format_date(value)
@@ -119,6 +225,7 @@ def rule_extract(text: str) -> dict:
         if special:
             result["vessel"] = {"value": special.group(1), "evidence": voyage}
             result["voyage"] = {"value": special.group(2), "evidence": voyage}
+            _complete_sparse_fields(text, result)
             return result
         split = re.match(r"(.+?)\s+(?:V\.)?(\d[A-Z0-9/-]{2,})\s*$", vessel, re.I)
         if split:
@@ -134,4 +241,5 @@ def rule_extract(text: str) -> dict:
     if not result["voyage"]["value"]:
         v, e = match_first(text, [r"(?m)^\s*航次\s*[:：]\s*([A-Z0-9/-]{3,})"])
         result["voyage"] = {"value": v, "evidence": e}
+    _complete_sparse_fields(text, result)
     return result

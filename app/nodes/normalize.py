@@ -2,16 +2,14 @@
 
 import re
 
+from app.models import FieldResult
+from app.state import FIELDS
+from app.business import COUNTRY_SUFFIXES, DESTINATION_PORT_CODES, ORIGIN_ALIASES
+
 
 _MONTHS = {month: index for index, month in enumerate(
     ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"), 1
 )}
-_COUNTRIES = (
-    "QATAR", "CHINA", "MALAYSIA", "INDONESIA", "INDIA", "JAPAN",
-    "SOUTH KOREA", "KOREA", "THAILAND", "VIETNAM", "CANADA",
-    "UNITED ARAB EMIRATES", "TURKEY", "PHILIPPINES", "BANGLADESH",
-    "SINGAPORE", "AUSTRALIA", "UNITED STATES", "USA",
-)
 
 
 def normalize_sailing_date(value: str) -> str:
@@ -33,26 +31,38 @@ def normalize_sailing_date(value: str) -> str:
 
 
 def normalize_destination(value: str) -> str:
-    """Remove only a recognizable country suffix after a port name."""
+    """Show the overseas port, not its terminal, province, or country."""
     value = value.strip()
-    for country in _COUNTRIES:
+    value = re.split(r"\s+Terminal\b|\s*/\s*(?:Unit|Sociedad|Mersin Int'l)", value, 1, flags=re.I)[0].strip()
+    value = re.sub(r"\s+PORT\s*$", "", value, flags=re.I).strip()
+    value = re.sub(r"^([A-Z]{5})\s*\(\s*([^)]*)\s*\)$", r"\2", value).strip()
+    for country in COUNTRY_SUFFIXES:
         suffix = re.search(rf"[;,，；]\s*{re.escape(country)}\s*$", value, re.I)
         if suffix:
-            return value[:suffix.start()].strip()
-    return value
+            value = value[:suffix.start()].strip()
+            break
+    value = re.sub(r",\s*(?:SOUTH|PEOPLE|BC|QC)\s*$", "", value, flags=re.I).strip()
+    value = re.sub(r",\s*([^,]+)$", lambda m: "" if m.group(1).strip().casefold() == value.split(",", 1)[0].strip().casefold() else m.group(0), value)
+    value = re.sub(r"\s+PORT\s*$", "", value, flags=re.I).strip()
+    return DESTINATION_PORT_CODES.get(value.upper(), value)
 
 
 def normalize_origin(value: str) -> str:
     """Use confirmed domestic port abbreviations; leave unknown ports unchanged."""
     text = value.strip()
-    if re.search(r"^(?:QINGDAO|QINDAO|青岛|青島)", text, re.I):
-        return "QD"
-    if re.search(r"^(?:TIANJIN|天津)", text, re.I):
-        return "TJ"
-    if re.search(r"^(?:CNNSA|NANSHA|南沙)", text, re.I):
-        return "NS"
-    if re.search(r"^(?:NINGBO|宁波)", text, re.I):
-        return "NB"
-    if re.search(r"^(?:LIANYUNGANG|连云港|連雲港)", text, re.I):
-        return "LYG"
+    for pattern, abbreviation in ORIGIN_ALIASES:
+        if re.search(pattern, text, re.I):
+            return abbreviation
     return text
+
+
+def normalize_fields(fields: dict) -> dict:
+    """The shared, idempotent display boundary for rule and AI results."""
+    normalizers = {"origin": normalize_origin, "destination": normalize_destination,
+                   "sailing_date": normalize_sailing_date}
+    result = {}
+    for key in FIELDS:
+        entry = FieldResult.from_dict(fields.get(key, {}))
+        entry.value = normalizers.get(key, str.strip)(entry.value)
+        result[key] = entry.to_dict()
+    return result

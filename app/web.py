@@ -1,17 +1,16 @@
 """Local HTTP entry point for the review and export UI."""
 
-import base64
 import json
-import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from app.graph import extract
 from app.jobs import get_job, get_stats, start_job
 from app.state import MAX_DOCUMENT_BYTES, PROJECT_ROOT, TEMPLATE
-from app.tools.excel_export import make_workbook
-from app.tools.alias_memory import remember_aliases
+from app.business import review_config
+from app.diagnostics import record_error
+from app.services.requests import decode_extraction_request
+from app.services.export import export_review
 from app.tools.provider_settings import clear_settings, public_settings, test_and_save
 
 
@@ -35,6 +34,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
+        elif route.path == "/api/review-config":
+            self.send_json(200, review_config())
+        elif route.path.startswith("/static/"):
+            filename = route.path.removeprefix("/static/")
+            allowed = {"styles.css": "text/css", "api.js": "text/javascript",
+                       "ui.js": "text/javascript", "review.js": "text/javascript", "app.js": "text/javascript"}
+            if filename not in allowed:
+                self.send_error(404)
+                return
+            data = (PROJECT_ROOT / "app" / "static" / filename).read_bytes()
+            self.send_response(200)
+            self.send_header("Content-Type", allowed[filename] + "; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(data)
         elif route.path == "/api/config":
             self.send_json(200, {**public_settings(), "template_ready": TEMPLATE.exists()})
         elif route.path == "/api/stats":
@@ -54,6 +69,8 @@ class Handler(BaseHTTPRequestHandler):
             if size <= 0 or size > 2 * MAX_DOCUMENT_BYTES * 2:
                 raise ValueError("请求过大或没有内容")
             payload = json.loads(self.rfile.read(size))
+            if not isinstance(payload, dict):
+                raise ValueError("请求必须是 JSON 对象")
             if self.path == "/api/config":
                 action = payload.get("action", "save")
                 if action == "test":
@@ -64,38 +81,13 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError("无效的配置操作")
                 self.send_json(200, {**public_settings(), "template_ready": TEMPLATE.exists()})
             elif self.path in {"/api/extract", "/api/extract/start"}:
-                raw_docs = payload.get("documents", [])
-                if not isinstance(raw_docs, list) or not 1 <= len(raw_docs) <= 2:
-                    raise ValueError("请至少上传一份单据，最多两份")
-                docs = []
-                for raw in raw_docs:
-                    if raw.get("role") not in {"订舱委托书", "入货通知"}:
-                        raise ValueError("文件类型无效")
-                    data = base64.b64decode(raw["data"], validate=True)
-                    if not data or len(data) > MAX_DOCUMENT_BYTES:
-                        raise ValueError("每份文件须小于 12 MB")
-                    docs.append({"name": Path(raw["name"]).name, "role": raw["role"], "data": data})
-                if len({document["role"] for document in docs}) != len(docs):
-                    raise ValueError("同一类型的文件只能上传一份")
-                mode = payload.get("mode", "rules")
-                if mode not in {"rules", "ai"}:
-                    raise ValueError("无效的提取模式")
+                docs, mode = decode_extraction_request(payload)
                 if self.path == "/api/extract/start":
                     self.send_json(202, {"job_id": start_job(docs, mode)})
                 else:
                     self.send_json(200, extract(docs, mode))
             elif self.path == "/api/export":
-                values = payload.get("values", {})
-                data = make_workbook(values)
-                raw_aliases = payload.get("confirmed_aliases", [])
-                if not isinstance(raw_aliases, list):
-                    raise ValueError("字段别名格式无效")
-                candidates = [item for item in raw_aliases if isinstance(item, dict) and str(values.get(item.get("field"), "")).strip()]
-                memory_warning = False
-                try:
-                    remember_aliases(candidates)
-                except OSError:
-                    memory_warning = True
+                data, memory_warning = export_review(payload)
                 self.send_response(200)
                 self.send_header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
                 self.send_header("Content-Disposition", 'attachment; filename="business_contact_sheet.xlsx"')
@@ -107,9 +99,12 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_error(404)
         except (ValueError, KeyError, json.JSONDecodeError) as error:
-            self.send_json(400, {"error": str(error)})
+            self.send_json(400, {"error": str(error), "error_code": "invalid_request"})
+        except (BrokenPipeError, ConnectionResetError) as error:
+            record_error("client_disconnected", error)
         except Exception as error:
-            self.send_json(500, {"error": f"处理失败：{error}"})
+            record_error("request_failed", error)
+            self.send_json(500, {"error": f"处理失败：{error}", "error_code": "request_failed"})
 
 
 
