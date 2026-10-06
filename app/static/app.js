@@ -118,7 +118,10 @@ $('export').onclick=async()=>{
   try{
     let response=await api('/api/export',{values,confirmed_aliases});let blob=await response.blob();let url=URL.createObjectURL(blob);
     let a=document.createElement('a');a.href=url;a.download=`业务联系单_${values.bl_number||'待确认'}.xlsx`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
-    message('export-message',response.headers.get('X-Alias-Memory-Warning')?'Excel 已下载，但字段别名保存失败':'已下载，请打开核对版式。');
+    const unresolved=reviewIssues(currentExtraction.fields,values,reviewVerified).length;
+    let notice=response.headers.get('X-Alias-Memory-Warning')?'Excel 已下载，但字段别名保存失败。':'已下载，请打开核对版式。';
+    if(unresolved)notice+=`另有 ${unresolved} 项待补充或核实，请转交前确认。`;
+    message('export-message',notice);
   }catch(e){message('export-message',e.message,true)}finally{$('export').disabled=false}
 };
 async function initialize(){

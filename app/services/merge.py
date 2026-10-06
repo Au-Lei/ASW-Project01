@@ -33,7 +33,11 @@ def merge_candidates(extracted: list[tuple[dict, dict]]) -> dict:
             conflict = len(candidates) == 2 and comparable_value(key, candidates[0][1]["value"]) != comparable_value(key, candidates[1][1]["value"])
             if key == "bl_number" and conflict:
                 conflict = candidates[0][1].get("identifier_kind") == candidates[1][1].get("identifier_kind")
-            fields[key] = {**choice, "source": document["name"], "conflict": bool(conflict)}
+            alternatives = [{"value": entry["value"], "source": source["name"],
+                             "evidence": entry.get("evidence", ""), "role": source["role"]}
+                            for source, entry in candidates]
+            fields[key] = {**choice, "source": document["name"], "conflict": bool(conflict),
+                           "candidates": alternatives}
         else:
             fields[key] = {"value": "", "evidence": "", "source": "", "conflict": False}
     return fields

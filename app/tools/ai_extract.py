@@ -3,11 +3,13 @@
 import base64
 import json
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.nodes.normalize import normalize_fields
 from app.state import FIELDS, PROJECT_ROOT
 from app.tools.alias_memory import load_aliases
 from app.tools.layout_pdf import word_to_pdf
+from app.tools.pdf_images import MAX_VISION_PAGES, render_pdf_pages
 from app.tools.provider_settings import call_service, get_settings, request_style
 
 
@@ -67,8 +69,8 @@ def build_request(documents: list[dict], model: str | None = None) -> tuple[dict
     return payload, warnings
 
 
-def build_chat_request(documents: list[dict], model: str) -> tuple[dict, list[str]]:
-    """Text-only JSON extraction for providers using Chat Completions."""
+def build_chat_request(documents: list[dict], model: str, *, base_url: str = "") -> tuple[dict, list[str]]:
+    """Use PDF page images only for the confirmed DeepSeek Flash vision endpoint."""
     instructions = (PROJECT_ROOT / "prompts" / "booking_extraction.txt").read_text(encoding="utf-8")
     aliases = {field: labels for field, labels in load_aliases().items() if labels}
     schema_example = {field: {name: "" for name in ("value", "evidence", "source", "source_label", "review_reason")} for field in FIELDS}
@@ -79,7 +81,30 @@ def build_chat_request(documents: list[dict], model: str) -> tuple[dict, list[st
         + "\n已确认的标签别名：" + json.dumps(aliases, ensure_ascii=False)
         + "\n原始单据文字：\n" + source_text
     )
-    return {"model": model, "messages": [{"role": "user", "content": prompt}], "response_format": {"type": "json_object"}}, ["当前厂商模式仅发送提取到的文字；扫描件或复杂表格可能识别不全，请人工核对"]
+    content: str | list[dict] = prompt
+    warnings = []
+    supports_vision = urlsplit(base_url).hostname == "api.deepseek.com" and model.lower() == "deepseek-flash"
+    if supports_vision:
+        parts = [{"type": "text", "text": prompt}]
+        for doc in documents:
+            if Path(doc["name"]).suffix.lower() != ".pdf":
+                continue
+            try:
+                images, total = render_pdf_pages(doc["data"])
+            except (RuntimeError, ValueError, OSError):
+                warnings.append(f"{doc['name']} 的 PDF 页面图像未能读取；仅使用可提取的文字，请人工核对")
+                continue
+            for index, image in enumerate(images, 1):
+                parts.append({"type": "text", "text": f"{doc['name']} 第 {index} 页页面图像；请从图像核对标签、表格和字段来源。"})
+                parts.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(image).decode("ascii"), "detail": "high"}})
+            if total > MAX_VISION_PAGES:
+                warnings.append(f"{doc['name']} 共 {total} 页，AI 只查看前 {MAX_VISION_PAGES} 页图像；后续页面仍需人工核对")
+        if len(parts) > 1:
+            content = parts
+            warnings.append("DeepSeek Flash 已接收 PDF 页面图像；可能产生额外图像费用，请按原件核对结果")
+    if not isinstance(content, list):
+        warnings.append("当前模型仅发送提取到的文字；扫描件或复杂表格可能识别不全，请人工核对")
+    return {"model": model, "messages": [{"role": "user", "content": content}], "response_format": {"type": "json_object"}}, warnings
 
 
 def ai_extract(documents: list[dict], on_progress=None) -> tuple[dict, list[str]]:
@@ -90,9 +115,11 @@ def ai_extract(documents: list[dict], on_progress=None) -> tuple[dict, list[str]
     if style == "responses":
         payload, warnings = build_request(documents, settings["model"])
     else:
-        if not any(doc["text"].strip() for doc in documents):
-            raise ValueError("单据没有可读取的文字；请使用支持 PDF 版面输入的 OpenAI 模式或上传可复制文字的文件")
-        payload, warnings = build_chat_request(documents, settings["model"])
+        payload, warnings = build_chat_request(documents, settings["model"], base_url=settings["base_url"])
+        has_image = any(isinstance(part, dict) and part.get("type") == "image_url"
+                        for part in payload["messages"][0]["content"]) if isinstance(payload["messages"][0]["content"], list) else False
+        if not any(doc["text"].strip() for doc in documents) and not has_image:
+            raise ValueError("单据没有可读取的文字；扫描版 PDF 可选用支持图片的 DeepSeek Flash 或支持 PDF 的 OpenAI 模型")
     if on_progress:
         on_progress("extract", f"正在等待 AI 模型 {settings['model']} 返回结果")
     body = call_service(settings, payload)

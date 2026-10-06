@@ -7,7 +7,7 @@
 需要 Python 3.10 以上。旧版 `.doc/.rtf/.xls` 需要 Windows 和本机 Microsoft Office；PDF、DOCX、XLSX 无需 Office。
 
 ```powershell
-cd C:\Users\Administrator\Documents\Codex\2026-09-26\lai\ASW-Project01
+cd C:\Users\Administrator\Documents\Codex\2026-09-26\lai\ASW-Project01\ASW-Project01
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe app.py
@@ -19,13 +19,15 @@ python -m venv .venv
 
 每个上传框都可单独移除文件，也可使用“清空已选文件”开始处理下一票。更换文件后，上一票的核对结果会立即清除。
 
+提取后的核对页会集中列出待补充、来源冲突与需要人工核实的字段；点击提示可定位到输入框，人工填写后自动更新，冲突或疑义可手动标记“已核对”。清单只辅助审核，不代替对照原件；即使仍有待核项也可下载，但页面会提醒转交前确认。
+
 页面显示本次服务运行的提取统计：完成/失败票数、成功任务平均耗时，以及成功任务中 8 个目标字段的非空填充率（不代表准确率）。提取时会按实际执行阶段显示读取单据、准备提取、识别字段、整理结果、完成，并显示实时耗时及阶段记录。统计只保存在内存里，重启服务清零；原始上传文件不落盘，任务结果在内存中最多保留 15 分钟供页面读取。
 
 ## 启用 AI 提取
 
 选择页面上的“AI 提取”后，设置表单才会出现。填写 `base_url`（接口根地址）、`api_key` 和 `model`，点击“测试连接并保存”。测试会向该模型发送一条简短消息，只有成功才会启用 AI 提取；可能产生少量厂商费用。无需编辑 `.env` 或重启程序。页面不会回显密钥；密钥仅保存在当前本机服务进程的内存里，不写入仓库或浏览器存储。关闭或重启程序后须重新填写并测试，点击“清除配置”可立即停用。
 
-示例：OpenAI 的 `base_url` 为 `https://api.openai.com/v1`；DeepSeek 的为 `https://api.deepseek.com`。不要在根地址后添加 `/responses` 或 `/chat/completions`。官方 OpenAI 地址使用 Responses API，可发送单据文字及 PDF 版面；Word 文件会先在本机临时转换为 PDF。其他兼容地址使用 Chat Completions 的文字 JSON 提取，仅发送本机读取到的文字，不发送原始文件；扫描件或复杂表格可能识别不全。所有模式都必须人工核对。AI 服务的区域、权限、费用和模型可用性以厂商账户为准。
+示例：OpenAI 的 `base_url` 为 `https://api.openai.com/v1`；DeepSeek 的为 `https://api.deepseek.com`。不要在根地址后添加 `/responses` 或 `/chat/completions`。官方 OpenAI 地址使用 Responses API，可发送单据文字及 PDF 版面；Word 文件会先在本机临时转换为 PDF。DeepSeek 官方地址配合 `deepseek-flash` 时，会把每份 PDF 的前 3 页在本机转成页面图像后发送给模型，即使 PDF 是扫描件也能尝试识别；图像输入可能增加费用，超过 3 页的部分须人工核对。其他兼容地址或模型仍只发送本机读取的文字，扫描件可能无法识别。所有模式都必须人工核对。AI 服务的区域、权限、费用和模型可用性以厂商账户为准。
 
 如果连接测试出现 `WinError 10061`，先检查启动程序的环境是否把 `HTTPS_PROXY` 指向了未启动的本机代理。本项目曾遇到 `127.0.0.1:9`：这会在验证 API Key 或模型前直接拒绝连接。修复代理，或从没有该失效代理设置的正常网络环境启动程序；不要因为连接错误就反复更换密钥。页面会在可识别时显示代理地址，密钥不会出现在错误提示中。
 
@@ -35,7 +37,7 @@ AI 会在核对页显示字段原文标签与依据。勾选“记住标签”�
 
 ## 字段与规则
 
-写入模板的单元格：B8 提单号/订舱号，B9 船名，E9 航次，B10 船期，B11 箱量及类型，B12 场站，B13 目的港，E13 起运港。提取时以入货通知为优先，委托书用于补缺；缺失保持空白。船期指起运港预计开船日或 ETD，不取截港、截单或目的港 ETA。国内起运港按已确认的简称显示：QINGDAO 为 QD，TIANJIN 为 TJ；其他港口暂保留原文。
+写入模板的单元格：B8 提单号/订舱号，B9 船名，E9 航次，B10 船期，B11 箱量及类型，B12 场站，B13 目的港，E13 起运港。提取时以入货通知为优先，委托书用于补缺；缺失保持空白。船期优先取起运港预计开船日或 ETD；多程运输不把首程船 ETA 当作船期，特殊票由人工修改。国内起运港按已确认的简称显示：QINGDAO 为 QD，TIANJIN 为 TJ；其他港口暂保留原文。
 
 模板位于 `assets/业务联系单模板.xlsx`。程序只绑定 `127.0.0.1`，供本机演示；尚无账号、权限和审计功能，不适合直接作为多人生产系统。
 
@@ -69,3 +71,5 @@ docs/architecture.md    结构与扩展说明
 ```
 
 如开发电脑安装了 Node.js，还可运行 `node tests/test_frontend.cjs`，检查前端网络重试策略。Node.js 只用于该项开发测试，不是程序运行依赖。
+
+新增的 [盲测说明](docs/测评方法.md)介绍如何在仓库外保存真实单据和标准答案，并使用 `python evaluate_cases.py 私有清单.json` 统计规则提取的漏填、误填和整票准确情况；该结果不代表 AI 提取准确率。

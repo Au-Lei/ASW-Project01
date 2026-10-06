@@ -43,6 +43,10 @@ class NewCaseRegressions(unittest.TestCase):
         self.assertEqual([result[key] for key in ("sailing_date", "containers", "station", "destination")],
                          ["10.2", "1X20GP", "盛通永久", "GENOVA"])
 
+    def test_evergreen_empty_pickup_label_keeps_full_station_name(self):
+        result = values("空箱提领处 :山東港口陸海國際物流日照有限公司\nPORT OF LOADING: RIZHAO")
+        self.assertEqual(result["station"], "山東港口陸海國際物流日照有限公司")
+
     def test_one_dr_number_vessel_and_station(self):
         result = values(
             "D/R No. (编号)\nSHIPPER NAME\nROOM 100, SOME ROAD\n177FWWZUA0375\n"
@@ -53,7 +57,7 @@ class NewCaseRegressions(unittest.TestCase):
         self.assertEqual([result[key] for key in ("bl_number", "vessel", "voyage", "station", "destination")],
                          ["177FWWZUA0375", "ONE SERENITY", "2639E", "山港陆海联地", "PUERTO QUETZAL"])
 
-    def test_one_pre_carrier_first_leg_is_flagged(self):
+    def test_one_uses_proforma_etd_instead_of_pre_carrier_eta(self):
         result = normalize_fields(rule_extract(
             "Sales Rep: X Bill of Lading #: ONEYSZPGX4639300\n"
             "Pre Carrier : YM WINNER 050E Latest ETA/ETD : 15Oct26/18Oct26\n"
@@ -63,8 +67,14 @@ class NewCaseRegressions(unittest.TestCase):
             "EQ Type/Q'ty : 40'DRY HC.-1"
         ))
         self.assertEqual([result[key]["value"] for key in ("bl_number", "vessel", "voyage", "sailing_date", "containers", "destination", "origin")],
-                         ["ONEYSZPGX4639300", "YM WINNER", "050E", "10.15", "1X40HC", "BARRANQUILLA", "NS"])
-        self.assertIn("请核对", result["sailing_date"]["evidence"])
+                         ["ONEYSZPGX4639300", "YM WINNER", "050E", "10.13", "1X40HC", "BARRANQUILLA", "NS"])
+        self.assertIn("Proforma 1st vessel", result["sailing_date"]["evidence"])
+        self.assertIn("ETD", result["sailing_date"]["evidence"])
+
+    def test_first_leg_eta_alone_does_not_fill_sailing_date(self):
+        result = rule_extract("Pre Carrier : YM WINNER 050E Latest ETA/ETD : 15Oct26/18Oct26")
+        self.assertEqual(result["sailing_date"]["value"], "")
+        self.assertIn("ETA", result["sailing_date"]["review_reason"])
 
     def test_port_codes_country_suffix_and_inland_origin(self):
         self.assertEqual(values("PORT OF DISCHARGE: CAVAN ( VANCOUVER, BC )")["destination"], "VANCOUVER")

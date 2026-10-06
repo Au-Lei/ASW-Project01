@@ -63,6 +63,9 @@ def normalize_fields(fields: dict) -> dict:
     result = {}
     for key in FIELDS:
         entry = FieldResult.from_dict(fields.get(key, {}))
-        entry.value = normalizers.get(key, str.strip)(entry.value)
+        normalizer = normalizers.get(key, str.strip)
+        entry.value = normalizer(entry.value)
+        entry.candidates = [{**candidate, "value": normalizer(str(candidate.get("value", "")))}
+                            for candidate in entry.candidates if isinstance(candidate, dict)]
         result[key] = entry.to_dict()
     return result

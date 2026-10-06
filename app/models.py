@@ -1,6 +1,6 @@
 """Typed internal results; dictionary serialization preserves the public API."""
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Callable
 
 
@@ -29,6 +29,7 @@ class FieldResult:
     review_reason: str = ""
     conflict: bool = False
     identifier_kind: str = ""
+    candidates: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, entry: dict) -> "FieldResult":

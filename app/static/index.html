@@ -30,7 +30,7 @@
         <label>model<input id="ai-model" autocomplete="off" spellcheck="false" placeholder="例如 gpt-4.1-mini"></label>
       </div>
       <div class="actions"><button id="save-ai" type="button">测试连接并保存</button><button id="clear-ai" class="secondary" type="button">清除配置</button><span id="config-message" class="message"></span></div>
-      <p class="hint">base_url 填接口根地址，不带 /responses 或 /chat/completions。例如 OpenAI：https://api.openai.com/v1；DeepSeek：https://api.deepseek.com。连接测试会向所填模型发送一条简短消息，成功后才能提取，可能产生少量费用。官方 OpenAI 接口支持 PDF 版面；其他兼容接口目前只发送可读取的文字。</p>
+      <p class="hint">base_url 填接口根地址，不带 /responses 或 /chat/completions。例如 OpenAI：https://api.openai.com/v1；DeepSeek：https://api.deepseek.com。连接测试会向所填模型发送一条简短消息，成功后才能提取。官方 OpenAI 接口支持 PDF 版面；DeepSeek 官方地址配合 deepseek-flash 可读取 PDF 前 3 页图像，含扫描件，可能增加图像费用；其他兼容接口仍只发送可读取的文字。</p>
       <p class="hint">API Key 仅保存在当前本机程序的内存中，不写入项目文件或浏览器存储；程序重启后须重新测试。提取时单据内容会发送至所填地址，请先确认公司允许。</p>
     </div>
     <p id="upload-message" class="message">两类单据任选一份或各一份；扫描版 PDF 需使用 AI 提取。</p>
@@ -47,6 +47,8 @@
   <section id="review" class="card" hidden>
     <h2><span class="step">3</span>核对并修改提取结果</h2>
     <p class="muted">请以原始单据为准确认；承运公司、合约可手填，揽货人和客服可选择英文名。AI 模式下，勾选“记住标签”并下载后才会保存标签对应关系，不保存本票业务值。</p>
+    <div id="review-summary" class="review-summary" aria-live="polite"></div>
+    <div id="review-warnings" class="review-warnings" hidden></div>
     <div class="table" id="fields"></div>
     <div class="actions"><button id="export">下载业务联系单 Excel</button><span id="export-message" class="message"></span></div>
   </section>

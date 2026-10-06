@@ -28,6 +28,10 @@ def match_first(text: str, patterns: list[str]) -> tuple[str, str]:
 
 
 def format_date(value: str) -> str:
+    compact_english = re.search(r"\b(\d{1,2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2}\b", value, re.I)
+    if compact_english:
+        month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(compact_english.group(2).upper()) + 1
+        return f"{month}.{int(compact_english.group(1))}"
     english = re.search(r"(\d{1,2})[ -](JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[ -]20\d{2}", value, re.I)
     if english:
         month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(english.group(2).upper()) + 1
@@ -56,6 +60,8 @@ def normalize_station(value: str) -> str:
         return "青岛港"
     if value.startswith("山港陆海联地"):
         return "山港陆海联地"
+    if value.startswith("山東港口陸海國際物流日照"):
+        return value
     return re.sub(r"(?:物流)?有限公司$", "", value)
 
 
@@ -98,13 +104,9 @@ def _complete_sparse_fields(text: str, result: dict) -> None:
             if inline_date:
                 date, evidence = inline_date.group(1), inline_date.group(0)[:180]
         put("sailing_date", format_date(date), evidence)
-    # ONE transshipment notices put the first-leg ETA beside the pre-carrier.
-    # Keep the source visible because this differs from a normal ETD choice.
+    # A first-leg ETA is not a sailing date: only an explicit ETD may fill it.
     if not result["sailing_date"]["value"] and re.search(r"(?mi)^Pre Carrier\s*:", text):
-        match = re.search(r"(?mi)^Pre Carrier\s*:[^\n]*?Latest ETA/ETD\s*:\s*(\d{1,2}[A-Z]{3}\d{2})/", text)
-        if match:
-            month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(match.group(1)[2:5].upper()) + 1
-            put("sailing_date", f"{month}.{int(match.group(1)[:2])}", match.group(0)[:180] + "（首程船 ETA；请核对）")
+        result["sailing_date"]["review_reason"] = "仅见首程船 ETA，未找到明确的起运港 ETD，请人工核对"
 
     if not result["containers"]["value"]:
         box_patterns = (
@@ -135,7 +137,7 @@ def _complete_sparse_fields(text: str, result: dict) -> None:
         put("containers", "LCL", "拼箱货物（按拼箱业务类型；请核对）")
 
     if not result["station"]["value"]:
-        station, evidence = _labeled_value(text, r"(?:提箱地点|提箱地|提柜地点|入货地址|退箱/提箱处|空箱提取处)", r"[^\n|]{2,100}")
+        station, evidence = _labeled_value(text, r"(?:提箱地点|提箱地|提柜地点|入货地址|退箱/提箱处|空箱提取处|空箱提领处|空箱提領處)", r"[^\n|]{2,100}")
         put("station", normalize_station(station.split(" 天津港")[0].split("(黄岛")[0]), evidence)
 
     if not result["vessel"]["value"]:
@@ -177,7 +179,14 @@ def rule_extract(text: str) -> dict:
     booking, booking_evidence = match_first(text, [r"(?m)^[ \t]*(?:BOOKING NUMBER(?:\([^)]*\))?|Booking No\.?|订舱号码|订舱号|SO/NO)\s*[:：.]?\s*(?:\|\s*)?([A-Z0-9-]{7,})", r"\bElectronic Ref\.[ \t]*:[ \t]*([A-Z0-9-]{7,})"])
     result["bl_number"] = {"value": bill or booking, "evidence": bill_evidence or booking_evidence, "identifier_kind": "bill" if bill else "booking" if booking else ""}
     for key, pats in FIELD_PATTERNS.items():
-        value, evidence = match_first(text, pats)
+        value, evidence = ("", "")
+        if key == "sailing_date":
+            value, evidence = match_first(text, [
+                r"(?mi)^Port of Loading[^\n]{0,140}?\bETD\s*:\s*(\d{1,2}[ -][A-Z]{3}[ -]20\d{2}|20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[A-Z]{3}\d{2})",
+                r"(?i)Proforma\s+1st\s+vessel\s+ETD\s*:\s*(\d{1,2}[A-Z]{3}\d{2}|\d{1,2}[ -][A-Z]{3}[ -]20\d{2})",
+            ])
+        if not value:
+            value, evidence = match_first(text, pats)
         if key == "sailing_date" and value:
             value = format_date(value)
         if key == "containers" and value:
