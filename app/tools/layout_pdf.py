@@ -7,16 +7,17 @@ from pathlib import Path
 
 import pdfplumber
 
-from app.state import PROJECT_ROOT
+from app.state import RUNTIME_TMP_DIR
 
 
 def word_to_pdf(name: str, data: bytes) -> bytes:
     if os.name != "nt":
-        raise RuntimeError("Word 版面转换目前需要 Windows 和 Microsoft Office")
+        from app.tools.linux_office import to_pdf
+        return to_pdf(name, data)
     suffix = Path(name).suffix.lower()
     if suffix not in {".doc", ".docx", ".rtf"}:
         raise ValueError("只支持 Word/RTF 文件版面转换")
-    temporary_root = PROJECT_ROOT / ".runtime_tmp"
+    temporary_root = RUNTIME_TMP_DIR
     temporary_root.mkdir(exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=temporary_root, suffix=suffix, delete=False) as source_file:
         source_file.write(data)

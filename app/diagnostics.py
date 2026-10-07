@@ -5,7 +5,7 @@ import traceback
 from logging.handlers import RotatingFileHandler
 from threading import Lock
 
-from app.state import PROJECT_ROOT
+from app.state import LOG_DIR
 
 _lock = Lock()
 
@@ -15,7 +15,7 @@ def record_error(event: str, error: BaseException, *, job_id: str = "") -> None:
         with _lock:
             logger = logging.getLogger("asw.diagnostics")
             if not logger.handlers:
-                directory = PROJECT_ROOT / "logs"
+                directory = LOG_DIR
                 directory.mkdir(parents=True, exist_ok=True)
                 handler = RotatingFileHandler(directory / "app.log", maxBytes=1_000_000,
                                               backupCount=2, encoding="utf-8")

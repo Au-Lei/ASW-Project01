@@ -7,8 +7,11 @@
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-<header><p class="eyebrow">DOCUMENT INTELLIGENCE / LOCAL WORKSPACE</p><h1>业务联系单生成助手</h1><p>智能解析订舱单据 · 人工核对关键字段 · 导出标准业务联系单</p></header>
-<main>
+<section id="login-panel" class="login-panel" hidden><form id="login-form" class="card login-card"><h2>账号登录</h2><p>请使用管理员创建的公司账号。</p><label>账号<input id="login-username" autocomplete="username" required></label><label>密码<input id="login-password" type="password" autocomplete="current-password" required></label><button type="submit">登录</button><p id="login-error" role="alert"></p></form></section>
+<section id="setup-panel" class="login-panel" hidden><form id="setup-form" class="card login-card"><h2>首次设置管理员账号</h2><p>仅限本机首次启用；密码至少 12 位，请妥善保管。</p><label>账号<input id="setup-username" autocomplete="username" required></label><label>密码<input id="setup-password" type="password" autocomplete="new-password" minlength="12" required></label><button type="submit">创建账号</button><p id="setup-error" role="alert"></p></form></section>
+<header hidden><p class="eyebrow">DOCUMENT INTELLIGENCE / LOCAL WORKSPACE</p><h1>业务联系单生成助手</h1><p>智能解析订舱单据 · 人工核对关键字段 · 导出标准业务联系单</p></header>
+<div class="account-bar" hidden><span id="account-name"></span><button id="logout" type="button" class="secondary">退出登录</button></div>
+<main hidden>
   <section class="stats" aria-label="本次运行统计">
     <div class="stat"><span class="stat-label">累计提取</span><strong id="stat-total" class="stat-value">0</strong><small>本次服务运行</small></div>
     <div class="stat"><span class="stat-label">成功 / 失败</span><strong id="stat-outcomes" class="stat-value">0 / 0</strong><small>完成的任务</small></div>
@@ -31,7 +34,8 @@
       </div>
       <div class="actions"><button id="save-ai" type="button">测试连接并保存</button><button id="clear-ai" class="secondary" type="button">清除配置</button><span id="config-message" class="message"></span></div>
       <p class="hint">base_url 填接口根地址，不带 /responses 或 /chat/completions。例如 OpenAI：https://api.openai.com/v1；DeepSeek：https://api.deepseek.com。连接测试会向所填模型发送一条简短消息，成功后才能提取。官方 OpenAI 接口支持 PDF 版面；DeepSeek 官方地址配合 deepseek-flash 可读取 PDF 前 3 页图像，含扫描件，可能增加图像费用；其他兼容接口仍只发送可读取的文字。</p>
-      <p class="hint">API Key 仅保存在当前本机程序的内存中，不写入项目文件或浏览器存储；程序重启后须重新测试。提取时单据内容会发送至所填地址，请先确认公司允许。</p>
+      <p class="hint">API Key 按账号加密保存在服务器，不写入浏览器；请妥善保管服务器主密钥。提取时单据内容会发送至所填地址，请先确认公司允许。</p>
+      <div class="memory-panel"><div class="actions"><h3>已确认的纠错记忆</h3><button id="load-memory" class="secondary" type="button">查看记忆</button></div><p class="hint">仅保存标签到字段的对应关系和你主动批准的箱型格式规则；可在这里撤销。</p><div id="memory-list" class="memory-list" hidden></div><div class="actions"><select id="format-option" aria-label="选择箱型格式规则"></select><button id="add-format" class="secondary" type="button">批准格式规则</button><span id="memory-message" class="message"></span></div></div>
     </div>
     <p id="upload-message" class="message">两类单据任选一份或各一份；扫描版 PDF 需使用 AI 提取。</p>
   </section>
@@ -46,17 +50,19 @@
   </section>
   <section id="review" class="card" hidden>
     <h2><span class="step">3</span>核对并修改提取结果</h2>
-    <p class="muted">请以原始单据为准确认；承运公司、合约可手填，揽货人和客服可选择英文名。AI 模式下，勾选“记住标签”并下载后才会保存标签对应关系，不保存本票业务值。</p>
+    <p class="muted">请以原始单据为准确认；承运公司、合约可手填，揽货人和客服可选择英文名。AI 模式下，核对字段后可主动勾选“记住标签”，下载时才保存对应关系；修改字段会取消勾选，不保存本票业务值。</p>
     <div id="review-summary" class="review-summary" aria-live="polite"></div>
     <div id="review-warnings" class="review-warnings" hidden></div>
     <div class="table" id="fields"></div>
     <div class="actions"><button id="export">下载业务联系单 Excel</button><span id="export-message" class="message"></span></div>
   </section>
-  <footer>本地演示版本 · 原始文件不落盘；提取结果在内存中保留最多 15 分钟 · 启用 AI 时单据内容会发送至配置的 AI 服务</footer>
+  <footer>内部使用版本 · 原始文件不落盘；提取结果在内存中保留最多 15 分钟 · 启用 AI 时单据内容会发送至配置的 AI 服务</footer>
 </main>
 <script src="/static/api.js" defer></script>
+<script src="/static/auth.js" defer></script>
 <script src="/static/ui.js" defer></script>
 <script src="/static/review.js" defer></script>
+<script src="/static/memory.js" defer></script>
 <script src="/static/app.js" defer></script>
 </body>
 </html>

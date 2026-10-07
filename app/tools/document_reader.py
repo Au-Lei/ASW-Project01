@@ -11,7 +11,7 @@ import openpyxl
 import pdfplumber
 from docx import Document
 
-from app.state import PROJECT_ROOT
+from app.state import RUNTIME_TMP_DIR
 
 
 def decode_office_output(value: bytes | str) -> str:
@@ -42,8 +42,10 @@ def read_document(name: str, data: bytes) -> str:
             wb.close()
     if suffix in {".doc", ".rtf", ".xls"}:
         if os.name != "nt":
-            raise ValueError("旧版 DOC/RTF/XLS 目前需要 Windows 和 Microsoft Office")
-        temporary_root = PROJECT_ROOT / ".runtime_tmp"
+            from app.tools.linux_office import to_pdf
+            with pdfplumber.open(io.BytesIO(to_pdf(name, data))) as pdf:
+                return "\n".join(page.extract_text() or "" for page in pdf.pages)
+        temporary_root = RUNTIME_TMP_DIR
         temporary_root.mkdir(exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=temporary_root, suffix=suffix, delete=False) as temporary_file:
             temporary_file.write(data)

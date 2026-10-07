@@ -25,6 +25,7 @@ from app.services.requests import decode_extraction_request
 from app.state import FIELDS, PROJECT_ROOT
 from app.tools.document_reader import read_document
 from app.web import Handler, ThreadingHTTPServer
+from app import security
 
 
 class ServiceTests(unittest.TestCase):
@@ -92,7 +93,7 @@ class ServiceTests(unittest.TestCase):
             temporary_root = PROJECT_ROOT / ".runtime_tmp"
             temporary_root.mkdir(exist_ok=True)
             with tempfile.TemporaryDirectory(dir=temporary_root) as directory:
-                with patch.object(diagnostics, "PROJECT_ROOT", Path(directory)):
+                with patch.object(diagnostics, "LOG_DIR", Path(directory) / "logs"):
                     try:
                         raise ValueError("SECRET_KEY_AND_CUSTOMER_CONTENT")
                     except ValueError as error:
@@ -114,6 +115,13 @@ class ServiceTests(unittest.TestCase):
 
 class HttpWorkflowTests(unittest.TestCase):
     def setUp(self):
+        scratch = PROJECT_ROOT / ".runtime_tmp"
+        scratch.mkdir(exist_ok=True)
+        self.temp_dir = tempfile.TemporaryDirectory(dir=scratch)
+        self.db_patch = patch.object(security, "DB_PATH", Path(self.temp_dir.name) / "security.sqlite3")
+        self.key_patch = patch.object(security, "KEY_PATH", Path(self.temp_dir.name) / "security.key")
+        self.db_patch.start(); self.key_patch.start()
+        security.create_user("tester", "long-test-password-123")
         class QuietHandler(Handler):
             def log_message(self, *args):
                 pass
@@ -122,26 +130,62 @@ class HttpWorkflowTests(unittest.TestCase):
         self.thread.start()
         self.base = f"http://127.0.0.1:{self.server.server_port}"
         self.opener = build_opener(ProxyHandler({}))
+        with self.request("/api/login", {"username": "tester", "password": "long-test-password-123"}) as response:
+            login_data = json.load(response)
+            self.cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+            self.csrf = login_data["csrf"]
 
     def tearDown(self):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=2)
+        self.db_patch.stop(); self.key_patch.stop(); self.temp_dir.cleanup()
 
     def request(self, path, payload=None):
         data = json.dumps(payload).encode() if payload is not None else None
-        return self.opener.open(Request(self.base + path, data=data,
-                                       headers={"Content-Type": "application/json"}), timeout=5)
+        headers = {"Content-Type": "application/json"}
+        if hasattr(self, "cookie"):
+            headers.update({"Cookie": self.cookie, "X-CSRF-Token": self.csrf})
+        return self.opener.open(Request(self.base + path, data=data, headers=headers), timeout=5)
 
     def test_static_assets_and_request_boundaries(self):
         with self.request("/") as response:
             html = response.read().decode()
-        for name in ("api.js", "ui.js", "review.js", "app.js", "styles.css"):
+        for name in ("api.js", "ui.js", "review.js", "memory.js", "app.js", "styles.css"):
             self.assertIn("/static/" + name, html)
             with self.request("/static/" + name) as response:
                 self.assertTrue(response.read())
         with self.assertRaises(HTTPError) as error:
             self.request("/static/../state.py")
+        self.assertEqual(error.exception.code, 404)
+        error.exception.close()
+
+    def test_http_auth_csrf_and_cross_account_job_denial(self):
+        with self.assertRaises(HTTPError) as error:
+            self.opener.open(self.base + "/api/stats", timeout=5)
+        self.assertEqual(error.exception.code, 401)
+        error.exception.close()
+        with self.assertRaises(HTTPError) as error:
+            self.opener.open(Request(self.base + "/api/export", data=b"{}",
+                                     headers={"Content-Type": "application/json", "Cookie": self.cookie}), timeout=5)
+        self.assertEqual(error.exception.code, 403)
+        error.exception.close()
+        from app.security import CURRENT_USER, create_user
+        from app.jobs import start_job
+        create_user("other", "other-account-password")
+        context = CURRENT_USER.set(1)
+        try:
+            with patch("app.graph.extract", return_value={"fields": {field: {"value": ""} for field in FIELDS}}):
+                job_id = start_job([{"name": "fake.pdf", "role": "入货通知", "data": b"demo"}], "rules")
+        finally:
+            CURRENT_USER.reset(context)
+        login_body = json.dumps({"username": "other", "password": "other-account-password"}).encode()
+        with self.opener.open(Request(self.base + "/api/login", data=login_body,
+                                      headers={"Content-Type": "application/json"}), timeout=5) as response:
+            other_cookie = response.headers["Set-Cookie"].split(";", 1)[0]
+        with self.assertRaises(HTTPError) as error:
+            self.opener.open(Request(self.base + "/api/extract/status?job_id=" + job_id,
+                                     headers={"Cookie": other_cookie}), timeout=5)
         self.assertEqual(error.exception.code, 404)
         error.exception.close()
         with self.assertRaises(HTTPError) as error:

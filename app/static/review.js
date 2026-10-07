@@ -42,7 +42,7 @@ function render(data){
     let entry=data.fields[key]||{};
     let name=document.createElement('div');name.className='name';name.textContent=label;
     let value=document.createElement('div');let input=document.createElement('input');input.dataset.key=key;input.value=entry.value||'';input.placeholder='未找到，可手动填写';value.append(input);
-    reviewInputs.set(key,input);input.addEventListener('input',()=>{reviewVerified.delete(key);updateReviewSummary()});
+    reviewInputs.set(key,input);input.addEventListener('input',()=>{reviewVerified.delete(key);let alias=source.querySelector('input[data-alias-field]');if(alias)alias.checked=false;updateReviewSummary()});
     let source=document.createElement('div');source.className='source';let note=document.createElement('small');note.textContent=[entry.source_label,entry.source,entry.evidence].filter(Boolean).join(' · ')||'原件未找到，保持空白';source.append(note);
     if(entry.conflict||entry.review_reason){let flag=document.createElement('div');flag.className='flag';flag.textContent=entry.review_reason||'两份单据存在不同值，请核对';source.append(flag)}
     if(entry.conflict&&Array.isArray(entry.candidates)){
@@ -50,7 +50,7 @@ function render(data){
         if(!candidate.value||candidate.value===entry.value)continue;
         let button=document.createElement('button');button.type='button';button.className='candidate-choice';button.textContent=`改用 ${candidate.value}`;
         button.title=[candidate.role,candidate.source,candidate.evidence].filter(Boolean).join(' · ');
-        button.addEventListener('click',()=>{input.value=candidate.value;reviewVerified.delete(key);note.textContent=button.title;let flag=source.querySelector('.flag');if(flag)flag.textContent='已改用另一份单据的候选值，请核对原件';updateReviewSummary()});
+        button.addEventListener('click',()=>{input.value=candidate.value;reviewVerified.delete(key);let alias=source.querySelector('input[data-alias-field]');if(alias)alias.checked=false;note.textContent=button.title;let flag=source.querySelector('.flag');if(flag)flag.textContent='已改用另一份单据的候选值，请核对原件';updateReviewSummary()});
         source.append(button)
       }
     }
@@ -59,7 +59,7 @@ function render(data){
       checked.addEventListener('click',()=>{if(reviewVerified.has(key))reviewVerified.delete(key);else reviewVerified.add(key);updateReviewSummary()});
       reviewConfirmButtons.set(key,checked);source.append(checked)
     }
-    if(data.mode==='ai'&&entry.source_label&&entry.value){let choice=document.createElement('label');choice.className='alias-choice';let checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.dataset.aliasField=key;checkbox.checked=true;choice.append(checkbox,document.createTextNode('记住标签：'+entry.source_label));source.append(choice)}
+    if(data.mode==='ai'&&entry.source_label&&entry.value){let choice=document.createElement('label');choice.className='alias-choice';let checkbox=document.createElement('input');checkbox.type='checkbox';checkbox.dataset.aliasField=key;checkbox.checked=false;choice.append(checkbox,document.createTextNode('核对后记住标签：'+entry.source_label));source.append(choice)}
     table.append(name,value,source)
   }
   for(let [key,label] of Object.entries(manualFields)){

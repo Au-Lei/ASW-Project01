@@ -10,7 +10,7 @@ async function networkFetch(path,options={}){
   }
 }
 async function api(path,payload){
-  const response=await networkFetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+  const response=await networkFetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-CSRF-Token':globalThis.aswCsrf||''},body:JSON.stringify(payload)});
   if(!response.ok){
     const body=await response.json().catch(()=>({error:'请求失败'}));
     throw Error(body.error||'请求失败');

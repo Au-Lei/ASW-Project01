@@ -113,7 +113,7 @@ $('extract').onclick=async()=>{
 $('export').onclick=async()=>{
   let values={};document.querySelectorAll('#fields [data-key]').forEach(input=>values[input.dataset.key]=input.value);
   let confirmed_aliases=[];
-  if(currentExtraction?.mode==='ai')document.querySelectorAll('#fields input[data-alias-field]:checked').forEach(input=>{let field=input.dataset.aliasField;confirmed_aliases.push({field,source_label:currentExtraction.fields[field].source_label})});
+  if(currentExtraction?.mode==='ai')document.querySelectorAll('#fields input[data-alias-field]:checked').forEach(input=>{let field=input.dataset.aliasField;confirmed_aliases.push({field,source_label:currentExtraction.fields[field].source_label,confirmed:true})});
   $('export').disabled=true;message('export-message','正在生成 Excel……');
   try{
     let response=await api('/api/export',{values,confirmed_aliases});let blob=await response.blob();let url=URL.createObjectURL(blob);
@@ -122,6 +122,7 @@ $('export').onclick=async()=>{
     let notice=response.headers.get('X-Alias-Memory-Warning')?'Excel 已下载，但字段别名保存失败。':'已下载，请打开核对版式。';
     if(unresolved)notice+=`另有 ${unresolved} 项待补充或核实，请转交前确认。`;
     message('export-message',notice);
+    if(confirmed_aliases.length&&typeof loadMemory==='function')loadMemory();
   }catch(e){message('export-message',e.message,true)}finally{$('export').disabled=false}
 };
 async function initialize(){
@@ -130,9 +131,10 @@ async function initialize(){
     names=config.fields;manualFields=config.manual_fields;staffNames=config.staff_names;
     reviewReady=true;selectionChanged();
     applyConfig(await (await networkFetch('/api/config')).json());
+    await loadMemory();
     await loadStats();
   }catch(error){message('upload-message',error.message,true)}
 }
 selectionChanged();
 updateMode();
-initialize();
+checkSession().then(authenticated=>{if(authenticated)initialize()}).catch(error=>message('upload-message',error.message,true));

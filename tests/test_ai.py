@@ -5,7 +5,8 @@ import tempfile
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
+from io import BytesIO
 from unittest.mock import patch
 from pathlib import Path
 from app.nodes.normalize import normalize_destination, normalize_sailing_date
@@ -91,6 +92,16 @@ class AiTests(unittest.TestCase):
         self.assertIn("127.0.0.1:9", str(caught.exception))
         self.assertNotIn("password", str(caught.exception))
         self.assertNotIn("secret-test-key", str(caught.exception))
+
+    def test_auth_failure_does_not_echo_provider_key_fragment(self):
+        settings = provider_settings.validate_fields("https://api.deepseek.com", "secret-test-key", "deepseek-flash")
+        body = BytesIO(b'{"error":{"message":"Your api key: ****-key is invalid"}}')
+        error = HTTPError("https://api.deepseek.com/chat/completions", 401, "Unauthorized", {}, body)
+        with patch.object(provider_settings, "urlopen", side_effect=error):
+            with self.assertRaises(ValueError) as caught:
+                provider_settings.call_service(settings, {"model": "deepseek-flash"})
+        self.assertIn("HTTP 401", str(caught.exception))
+        self.assertNotIn("****-key", str(caught.exception))
 
     def test_connection_probe_reaches_local_compatible_service(self):
         seen = []

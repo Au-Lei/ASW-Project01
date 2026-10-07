@@ -42,13 +42,14 @@ ORIGIN_ALIASES = (
     (r"^(?:CNNSA|NANSHA|南沙)", "NS"),
     (r"^(?:NINGBO|宁波)", "NB"),
     (r"^(?:LIANYUNGANG|连云港|連雲港)", "LYG"),
+    (r"^(?:SHANGHAI|上海)", "SH"),
 )
 COUNTRY_SUFFIXES = (
     "QATAR", "CHINA", "MALAYSIA", "INDONESIA", "INDIA", "JAPAN",
     "SOUTH KOREA", "KOREA", "THAILAND", "VIETNAM", "CANADA",
     "UNITED ARAB EMIRATES", "TURKEY", "PHILIPPINES", "BANGLADESH",
     "SINGAPORE", "AUSTRALIA", "UNITED STATES", "USA",
-    "TAIWAN", "ARGENTINA", "GUATEMALA", "PEOPLE'S REPUBLIC OF CHINA",
+    "TAIWAN", "ARGENTINA", "GUATEMALA", "BRAZIL", "SURINAM", "PEOPLE'S REPUBLIC OF CHINA",
 )
 
 # Codes observed in carrier confirmations. Keep this small and reviewed: never

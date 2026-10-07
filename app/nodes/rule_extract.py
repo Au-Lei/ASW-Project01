@@ -27,7 +27,22 @@ def match_first(text: str, patterns: list[str]) -> tuple[str, str]:
     return "", ""
 
 
+def collect_matches(text: str, patterns: list[str]) -> list[dict]:
+    """Keep every explicit match for later comparison, not just the first one."""
+    found = []
+    for priority, pattern in enumerate(patterns):
+        for match in re.finditer(pattern, text, re.I | re.M):
+            value = re.sub(r"\s+", " ", match.group(1)).strip(" :：/|,，")
+            if value and not value.upper().startswith(("PORT OF ", "POD", "POL")):
+                found.append({"value": value, "evidence": match.group(0).strip()[:180], "pattern_priority": priority})
+    return found
+
+
 def format_date(value: str) -> str:
+    month_first = re.search(r"\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[ -](\d{1,2})[ -]20\d{2}\b", value, re.I)
+    if month_first:
+        month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(month_first.group(1).upper()) + 1
+        return f"{month}.{int(month_first.group(2))}"
     compact_english = re.search(r"\b(\d{1,2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2}\b", value, re.I)
     if compact_english:
         month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(compact_english.group(2).upper()) + 1
@@ -36,6 +51,9 @@ def format_date(value: str) -> str:
     if english:
         month = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC").index(english.group(2).upper()) + 1
         return f"{month}.{int(english.group(1))}"
+    day_first = re.search(r"\b(\d{1,2})\.(\d{1,2})\.20\d{2}\b", value)
+    if day_first:
+        return f"{int(day_first.group(2))}.{int(day_first.group(1))}"
     match = re.search(r"(?:(?:20\d{2})[-/.年])?\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})", value)
     return f"{int(match.group(1))}.{int(match.group(2))}" if match else value.strip()
 
@@ -252,3 +270,29 @@ def rule_extract(text: str) -> dict:
         result["voyage"] = {"value": v, "evidence": e}
     _complete_sparse_fields(text, result)
     return result
+
+
+def rule_candidates(text: str, result: dict) -> dict[str, list[dict]]:
+    """Collect competing labeled values while retaining legacy fallbacks as candidates."""
+    text = split_inline_fields(normalize_source_text(text))
+    candidates = {key: [] for key in FIELDS}
+    bill_patterns = [
+        r"(?mi)^[ \t]*(?:主提单号|提\s*单\s*号|B/L[ \t]*(?:NO\.?|NUMBER)|BILL OF LADING[ \t]*(?:NO\.?|NUMBER)|D/R[ \t]*NO\.?)\s*[:：.]?\s*(?:\|\s*)?([A-Z0-9-]{7,})",
+        r"(?mi)^\s*(?:BOOKING NUMBER(?:\([^)]*\))?|Booking No\.?|订舱号码|订舱号|SO/NO)\s*[:：.]?\s*(?:\|\s*)?([A-Z0-9-]{7,})",
+    ]
+    for index, item in enumerate(collect_matches(text, bill_patterns)):
+        item["identifier_kind"] = "bill" if item["pattern_priority"] == 0 else "booking"
+        candidates["bl_number"].append(item)
+    for key in ("sailing_date", "containers", "destination", "origin"):
+        candidates[key].extend(collect_matches(text, FIELD_PATTERNS[key]))
+    candidates["sailing_date"].extend(collect_matches(text, [
+        r"(?mi)(?:预计离港日|预计离港时间|开船日期|开航日期|ETD)\s*[:：]?\s*(20\d{2}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]20\d{2}|\d{1,2}[-/.]\d{1,2}(?!\s*[-~至到]\s*\d)|[A-Z]{3}[- ]\d{1,2}[- ]20\d{2})",
+    ]))
+    candidates["containers"].extend(collect_matches(text, [
+        r"(?mi)(?:箱量及类型|箱型/箱量|箱型箱量|箱量|箱型|柜型/数量)\s*[:：]?\s*(\d+\s*[X*×]\s*(?:20|40)\s*(?:GP|DV|HC|HQ|NOR|REEF)(?:\s*\+\s*\d+\s*[X*×]\s*(?:20|40)\s*(?:GP|DV|HC|HQ|NOR|REEF))+)",
+    ]))
+    for key in FIELDS:
+        legacy = result.get(key, {})
+        if legacy.get("value"):
+            candidates[key].append({**legacy, "legacy": True})
+    return candidates

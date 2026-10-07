@@ -5,6 +5,7 @@ import re
 from app.models import FieldResult
 from app.state import FIELDS
 from app.business import COUNTRY_SUFFIXES, DESTINATION_PORT_CODES, ORIGIN_ALIASES
+from app.tools.alias_memory import apply_format_rules
 
 
 _MONTHS = {month: index for index, month in enumerate(
@@ -59,7 +60,7 @@ def normalize_origin(value: str) -> str:
 def normalize_fields(fields: dict) -> dict:
     """The shared, idempotent display boundary for rule and AI results."""
     normalizers = {"origin": normalize_origin, "destination": normalize_destination,
-                   "sailing_date": normalize_sailing_date}
+                   "sailing_date": normalize_sailing_date, "containers": apply_format_rules}
     result = {}
     for key in FIELDS:
         entry = FieldResult.from_dict(fields.get(key, {}))

@@ -7,3 +7,8 @@ outputs/
 build/
 dist/
 logs/
+data/approved_memory.json
+data/users/
+data/security.sqlite3*
+data/security.key
+data/backups/

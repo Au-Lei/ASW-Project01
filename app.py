@@ -3,7 +3,7 @@
 import os
 
 from app.config import load_env
-from app.web import serve
+from app.wsgi import serve
 
 
 if __name__ == "__main__":

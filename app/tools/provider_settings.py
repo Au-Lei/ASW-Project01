@@ -5,6 +5,7 @@ from threading import Lock
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, getproxies, urlopen
+from app.security import CURRENT_USER, save_ai_settings, load_ai_settings, delete_ai_settings
 
 
 _lock = Lock()
@@ -55,6 +56,8 @@ def call_service(settings: dict, payload: dict, *, timeout: int = 120) -> dict:
         with urlopen(request, timeout=timeout) as response:
             return json.load(response)
     except HTTPError as error:
+        if error.code in {401, 403}:
+            raise ValueError(f"AI 服务返回 HTTP {error.code}：认证或访问权限失败，请检查 API Key、账户权限和模型权限") from error
         detail = error.read().decode("utf-8", "replace")[:350].replace(settings["api_key"], "[REDACTED]")
         raise ValueError(f"AI 服务返回 HTTP {error.code}：{detail}") from error
     except (URLError, TimeoutError, OSError) as error:
@@ -94,12 +97,19 @@ def test_and_save(base_url: str, api_key: str, model: str) -> dict:
     if not isinstance(parsed, dict) or parsed.get("ok") is not True:
         raise ValueError("AI 服务已连接，但模型未通过 JSON 提取测试")
     global _settings
-    with _lock:
-        _settings = settings
+    user_id = CURRENT_USER.get()
+    if user_id is not None:
+        save_ai_settings(user_id, settings)
+    else:
+        with _lock:
+            _settings = settings
     return public_settings()
 
 
 def get_settings() -> dict | None:
+    user_id = CURRENT_USER.get()
+    if user_id is not None:
+        return load_ai_settings(user_id)
     with _lock:
         return _settings.copy() if _settings else None
 
@@ -111,11 +121,15 @@ def public_settings() -> dict:
         "base_url": current["base_url"] if current else None,
         "model": current["model"] if current else None,
         "request_style": request_style(current["base_url"]) if current else None,
-        "storage": "memory",
+        "storage": "encrypted" if CURRENT_USER.get() is not None else "memory",
     }
 
 
 def clear_settings() -> None:
+    user_id = CURRENT_USER.get()
+    if user_id is not None:
+        delete_ai_settings(user_id)
+        return
     global _settings
     with _lock:
         _settings = None

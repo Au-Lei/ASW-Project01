@@ -13,7 +13,11 @@ def export_review(payload: dict) -> tuple[bytes, bool]:
         raise ValueError("字段别名格式无效")
     data = make_workbook(values)
     candidates = [item for item in aliases if isinstance(item, dict)
-                  and isinstance(item.get("field"), str) and values.get(item["field"], "").strip()]
+                  and item.get("confirmed") is True
+                  and isinstance(item.get("field"), str) and values.get(item["field"], "").strip()
+                  and not any(value.strip() and len(value.strip()) >= 3
+                              and value.strip().casefold() in str(item.get("source_label", "")).casefold()
+                              for value in values.values())]
     try:
         remember_aliases(candidates)
     except OSError:

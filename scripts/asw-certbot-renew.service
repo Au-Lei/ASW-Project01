@@ -1,0 +1,6 @@
+[Unit]
+Description=Renew ASW short-lived IP certificate
+
+[Service]
+Type=oneshot
+ExecStart=/opt/asw-certbot/bin/certbot renew --quiet --no-random-sleep-on-renew

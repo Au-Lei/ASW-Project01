@@ -48,7 +48,8 @@ class VisionTests(unittest.TestCase):
             result = run_pipeline([document], "ai", reader=read_document, rule_engine=rule_extract, ai_engine=ai_extract)
         self.assertEqual(result["fields"]["bl_number"]["value"], "TEST123456")
         self.assertEqual(result["documents"][0]["text_quality"], "little_text")
-        self.assertTrue(any("扫描件" in warning for warning in result["warnings"]))
+        self.assertTrue(any("页面图像" in warning for warning in result["warnings"]))
+        self.assertFalse(any("规则提取会漏项" in warning for warning in result["warnings"]))
         self.assertTrue(any(part["type"] == "image_url" for part in send.call_args.args[1]["messages"][0]["content"]))
 
     def test_other_chat_models_remain_text_only(self):

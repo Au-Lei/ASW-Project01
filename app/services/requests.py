@@ -1,6 +1,8 @@
 """Validate transport input before it reaches the extraction workflow."""
 
 import base64
+import io
+import zipfile
 from pathlib import Path
 
 from app.business import DOCUMENT_ROLES, EXTRACTION_MODES, SUPPORTED_SUFFIXES
@@ -31,6 +33,24 @@ def decode_extraction_request(payload: dict) -> tuple[list[dict], str]:
             raise ValueError("文件内容编码无效") from error
         if not data or len(data) > MAX_DOCUMENT_BYTES:
             raise ValueError("每份文件须小于 12 MB")
+        suffix = Path(name).suffix.lower()
+        if suffix == ".pdf" and not data.startswith(b"%PDF-"):
+            raise ValueError("PDF 文件内容与扩展名不符")
+        if suffix in {".docx", ".xlsx"}:
+            try:
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    files = archive.infolist()
+                    if len(files) > 2000 or sum(item.file_size for item in files) > 100 * 1024 * 1024:
+                        raise ValueError("Office 文件解压后过大")
+                    marker = "word/document.xml" if suffix == ".docx" else "xl/workbook.xml"
+                    if marker not in archive.namelist():
+                        raise ValueError("Office 文件内容与扩展名不符")
+            except zipfile.BadZipFile as error:
+                raise ValueError("Office 文件内容无效") from error
+        if suffix in {".doc", ".xls"} and not data.startswith(bytes.fromhex("D0CF11E0A1B11AE1")):
+            raise ValueError("旧版 Office 文件内容与扩展名不符")
+        if suffix == ".rtf" and not data.lstrip().startswith(b"{\\rtf"):
+            raise ValueError("RTF 文件内容与扩展名不符")
         docs.append({"name": name, "role": raw["role"], "data": data})
     if len({doc["role"] for doc in docs}) != len(docs):
         raise ValueError("同一类型的文件只能上传一份")
